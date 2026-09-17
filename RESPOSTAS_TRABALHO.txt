@@ -1,0 +1,139 @@
+BDD - TRABALHO
+================================================================
+Banco utilizado: PostgreSQL 16, rodando em container Docker
+(docker run --name bdd_trabalho_pg -e POSTGRES_PASSWORD=postgres
+-e POSTGRES_DB=bdd_trabalho -p 55432:5432 postgres:16)
+
+Todo o script executado está em script.sql. A saída completa e
+literal do psql para cada comando está em execucao_completa.log.
+Este arquivo resume o raciocínio e o resultado de cada exercício.
+
+================================================================
+OBSERVAÇÕES SOBRE O ARQUIVO Comandos.txt ORIGINAL
+================================================================
+Ao rodar o arquivo do jeito que estava, dois problemas apareceram
+e precisaram ser corrigidos para o script funcionar:
+
+1) A tabela CLIENTE foi criada com a coluna DATA_NASC, mas os
+   INSERTs usavam o nome DT_NASC. Corrigido para DATA_NASC.
+
+2) Dois INSERTs em VENDA_ITENS repetiam a mesma chave primária
+   (PRODUTO_ID, VENDA_ID) já usada em linhas anteriores:
+   - "VALUES(2,1,...)" para a venda 2 deveria ser VENDA_ID=2, não 1
+     (o valor da venda 2 é 500.00, batendo com esse item).
+   - "VALUES(1,1,...)" para a venda 5 deveria ser VENDA_ID=5, não 1
+     (o valor da venda 5 é 1000.00, batendo com esse item).
+   Sem essa correção, o INSERT dava erro de chave primária duplicada.
+
+3) O DELETE de exemplo ("DELETE FROM CIDADE WHERE ID = 1") foi
+   executado propositalmente sem alteração. Ele FALHA com erro de
+   violação de chave estrangeira, porque a cliente HELENA tem
+   CIDADE_ID = 1. Isso é o comportamento correto de um banco com
+   integridade referencial: não deixa apagar uma cidade que ainda
+   está sendo usada por um cliente. O erro está registrado em
+   execucao_completa.log (linha 168).
+
+================================================================
+SEÇÃO TRABALHO - RESPOSTAS
+================================================================
+
+1) Criar tabela CT_RECEBER
+----------------------------------------------------------------
+CREATE TABLE CT_RECEBER(
+    ID INT NOT NULL PRIMARY KEY,
+    VENDA_ID INT NOT NULL,
+    DATA_VENCIMENTO DATE,
+    DATA_PAGAMENTO DATE,
+    VALOR_PARCELA DECIMAL(10,2),
+    JUROS DECIMAL(10,2),
+    MULTA DECIMAL(10,2),
+    VALOR_PAGO DECIMAL(10,2),
+    NUMERO_PARCELA INT,
+    TOTAL_PARCELAS INT,
+    CONSTRAINT FK_CTRECEBER_VENDA FOREIGN KEY (VENDA_ID) REFERENCES VENDA(ID)
+);
+Executado com sucesso.
+
+2) Inserir 5 vendas com valores e itens aleatórios
+----------------------------------------------------------------
+Como as vendas 1 a 5 já existiam (exemplos do arquivo), as 5 vendas
+novas pedidas pelo exercício foram criadas com os IDs 6 a 10, cada
+uma com 2 itens de venda (VENDA_ITENS) e datas espalhadas por
+diferentes meses de 2026, para dar sentido ao exercício 4 (janeiro):
+
+ ID | CLIENTE | DATA       | VALOR_TOTAL | ITENS
+  6 |   2     | 15/01/2026 |   700.00    | MESA + CADEIRA
+  7 |   4     | 03/03/2026 |  1500.00    | SOFA AZUL + ARMARIO
+  8 |   1     | 22/01/2026 |   300.00    | CADEIRA + SUPORTE TV
+  9 |   5     | 10/07/2026 |   900.00    | ARMARIO + SUPORTE TV
+ 10 |   3     | 28/11/2026 |  1000.00    | SOFA AZUL
+
+3) Gerar 5 ou 10 parcelas em CT_RECEBER para cada venda nova
+----------------------------------------------------------------
+ VENDA | Nº PARCELAS | VALOR/PARCELA | 1º VENCIMENTO
+   6   |      5      |    140.00     | 15/02/2026 (mensal)
+   7   |     10      |    150.00     | 03/04/2026 (mensal)
+   8   |      5      |     60.00     | 22/02/2026 (mensal)
+   9   |     10      |     90.00     | 10/08/2026 (mensal)
+  10   |      5      |    200.00     | 28/12/2026 (mensal)
+Total: 35 parcelas inseridas na tabela CT_RECEBER (IDs 1 a 35).
+Juros, multa e valor_pago ficaram zerados/NULL pois nenhuma
+parcela foi paga ainda.
+
+4) Todas as vendas realizadas no mês de janeiro
+----------------------------------------------------------------
+SELECT * FROM VENDA WHERE EXTRACT(MONTH FROM DATA_EMICAO) = 1;
+
+ id | cliente_id | data_emicao | valor_total
+----+------------+-------------+------------
+  1 |          1 | 2026-01-01  |    1200.00
+  2 |          2 | 2026-01-01  |     500.00
+  3 |          3 | 2026-01-01  |    1200.00
+  4 |          4 | 2026-01-01  |     300.00
+  5 |          5 | 2026-01-01  |    1000.00
+  6 |          2 | 2026-01-15  |     700.00
+  8 |          1 | 2026-01-22  |     300.00
+(7 linhas)
+
+5) Todas as parcelas de contas a receber
+----------------------------------------------------------------
+SELECT * FROM CT_RECEBER;
+=> 35 linhas (IDs 1 a 35, ver saída completa em execucao_completa.log,
+   a partir da linha 333).
+
+6) Parcelas de contas a receber que vencem em 2026
+----------------------------------------------------------------
+SELECT * FROM CT_RECEBER WHERE EXTRACT(YEAR FROM DATA_VENCIMENTO) = 2026;
+=> 25 linhas (ver execucao_completa.log, linha 373 em diante).
+
+7) Parcelas de contas a receber que vencem em 2027
+----------------------------------------------------------------
+SELECT * FROM CT_RECEBER WHERE EXTRACT(YEAR FROM DATA_VENCIMENTO) = 2027;
+=> 10 linhas: parcela 10/10 da venda 7 (03/01/2027), parcelas 6 a 10
+   da venda 9 (jan a mai/2027) e parcelas 2 a 5 da venda 10
+   (jan a abr/2027).
+
+8) Parcelas de contas a receber com valor menor que 100
+----------------------------------------------------------------
+SELECT * FROM CT_RECEBER WHERE VALOR_PARCELA < 100;
+=> 15 linhas: as 5 parcelas de 60.00 da venda 8 e as 10 parcelas
+   de 90.00 da venda 9.
+
+9) Parcelas de contas a receber com valor maior que 100
+----------------------------------------------------------------
+SELECT * FROM CT_RECEBER WHERE VALOR_PARCELA > 100;
+=> 20 linhas: as 5 parcelas de 140.00 da venda 6, as 10 parcelas
+   de 150.00 da venda 7 e as 5 parcelas de 200.00 da venda 10.
+
+10) Parcelas de contas a receber da venda 1
+----------------------------------------------------------------
+SELECT * FROM CT_RECEBER WHERE VENDA_ID = 1;
+=> 0 linhas.
+A venda 1 é uma das vendas de exemplo originais do arquivo
+Comandos.txt, criada antes da tabela CT_RECEBER existir, então
+ela nunca teve parcelas de contas a receber geradas para ela.
+Apenas as vendas 6 a 10 (criadas no exercício 2/3) têm parcelas.
+
+================================================================
+FIM
+================================================================
